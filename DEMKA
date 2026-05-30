@@ -30,3 +30,137 @@ nano /etc/sysctl.conf
 
 net.ipv4.ip_forward=1
 
+Задание 1 [ Адрессация + Имя устройства]
+
+ISP
+
+hostnamectl set-hostname isp.au-team.irpo
+
+newgrp
+
+HQ-RTR
+
+hostnamectl set-hostname hq-rtr.au-team.irpo
+
+newgrp
+
+BR-RTR
+
+hostnamectl set-hostname br-rtr.au-team.irpo
+
+newgrp
+
+HQ-SRV
+
+hostnamectl set-hostname hq-srv.au-team.irpo
+
+newgrp
+
+HQ-CLI
+
+hostnamectl set-hostname hq-cli.au-team.irpo
+
+newgrp
+
+BR-SRV
+
+hostnamectl set-hostname br-srv.au-team.irpo
+
+newgrp
+
+
+Настройка адрессации в файле etc/network/interfaces
+
+ISP:
+
+nano /etc/network/interfaces
+
+auto ens224
+iface ens224 inet static
+address 172.16.1.1/28
+auto ens256
+iface ens256 inet static
+address 172.16.2.1/28
+
+HQ-RTR: (в 4 и 6 задании продолжение)
+
+nano /etc/network/interfaces
+
+auto ens192  
+iface ens192 inet static  
+address 172.16.1.2/28
+gateway 172.16.1.1
+
+auto gre1
+iface gre1 inet tunnel
+address 172.16.0.1
+netmask 255.255.255.240
+mode gre
+local 172.16.1.2
+endpoint 172.16.2.2
+ttl 64
+  
+auto ens224  
+iface ens224 inet static  
+address 192.168.100.1/27 
+  
+auto ens224:1  
+iface ens224:1 inet static  
+address 192.168.200.1/28
+
+auto ens224:2  
+iface ens224:2 inet static  
+address 192.168.99.9/29
+
+auto ens224.100  
+iface ens224.100 inet manual   
+Vlan-raw-device ens224  
+  
+auto ens224.200  
+iface ens224.200 inet manual   
+Vlan-raw-device ens224:1
+
+auto ens224.999  
+iface ens224.999 inet manual   
+Vlan-raw-device ens224:2
+
+BR-RTR: (в 6 задании продолжение)
+
+nano /etc/network/interfaces
+
+allow-hotplug ens192
+iface ens192 inet static
+address 172.16.2.2/28
+gateway 172.16.2.1
+
+auto ens224
+iface ens224 inet static
+address 192.168.0.1/28
+
+auto gre1
+iface gre1 inet tunnel
+address 172.16.0.2
+netmask 255.255.255.240
+mode gre
+local 172.16.2.2
+endpoint 172.16.1.2
+ttl 64
+
+BR-SRV:
+ 
+nano /etc/network/interfaces
+
+allow-hotplug ens192
+iface ens192 inet static
+address 192.168.0.2/28
+gateway 192.168.0.1
+dns-nameservers 192.168.100.2 192.168.0.2
+dns-search au-team.irpo
+
+HQ-SRV:
+
+nano /etc/network/interfaces
+allow-hotplug ens192
+iface ens192 inet static
+address 192.168.100.15/27
+gateway 192.168.100.1
