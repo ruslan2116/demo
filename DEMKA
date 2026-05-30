@@ -30,6 +30,11 @@ nano /etc/sysctl.conf
 
 net.ipv4.ip_forward=1
 
+
+_______________________________________
+МОДУЛЬ 1
+_______________________________________
+
 Задание 1 [ Адрессация + Имя устройства]
 
 ISP
@@ -964,6 +969,410 @@ timedatectl set-timezone Asia/Tomsk
 
 Если на CLI возникли проблемы, делаем через настройки в графическом интерфейсе и настраиваем там временную зону
 
+
+
+
+_____________________________________________
+МОДУЛЬ 2
+____________________________________________
+
+
+
+
+ВНИМАНИЕ❗❗❗
+Устройство HQ-CLI вставляет копированный текст некоректно! По этому, перепроверяйте вводимые данные! От этого часто могут возникать ошибки!!!
+ДОРАБОТАТЬ
+
+Задание 1
+## Описание задания:
+Создание контрлера домена
+Создание полльзователей
+Настройка HQ-CLI на домен
+Ошибка - нет возможности активировать sudo с пользователя hq. Исправть
+
+
+
+Задание 1
+## Описание задания:
+Создание контрлера домена
+
+Прописать в файле /etc/hosts ip, доменное имя (полностью) и имя сервера. Как это должно выглядеть:
+
+nano /etc/hosts
+192.168.0.2 br-srv.au-team.irpo br-srv
+Удаляем старую папку /etc/resolv.conf и создаём её заново:
+
+unlink /etc/resolv.conf
+nano /etc/resolv.conf
+После, прописываем следующие занчениея:
+
+nameserver 8.8.8.8
+
+nameserver 1.1.1.1
+
+search br-srv.au-team.irpo
+
+apt install samba samba-dsdb-modules samba-vfs-modules acl attr winbind libpam-winbind libnss-winbind krb5-config krb5-user libpam-krb5 smbclient dnsutils net-tools -y
+Указываем следующие значения, в следующих трёх появившихся полях, по порядку:
+
+AU-TEAM.IRPO
+br-srv.au-team.irpo
+br-srv.au-team.irpo
+После установки пакетов нам нужно остановить и запретить для автозапуска следующие службы:
+
+systemctl disable --now smbd nmbd winbind
+Удаление/перенос класического конфигурационного фала smb.conf, иначе так же может возникнуть ошибка:
+
+mv /etc/samba/smb.conf /etc/samba/smb.conf.backup
+Все эти функции на себя возьмет служба samba-ad-dc. Если мы не выключим перечисленные сервисы, будет конфликт и ошибка в работе. По идее, они будут заблокированы автоматически (masked0, но лишняя осторожность не повредит.
+
+samba-tool domain provision 
+👉 создаёт контроллер домена
+
+
+Если не создался домен, прописываем следующее
+
+Убираем оригинальный конфигурационный файл krb5.conf и заменяем его тем, что сформировала утилита samba-tool:
+
+mv /etc/krb5.conf /etc/krb5.conf.backup
+cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
+Открываем конфигурационный файл resolv.conf:
+
+nano /etc/resolv.conf
+Удаляем старую запись DNS сервера и заменяем на запись локального сервера:
+
+nameserver 192.168.0.2
+Перезапускаем сервис и включаем его для автозапуска:
+
+systemctl restart samba
+systemctl enable --now samba-ad-dc
+Проверьте статус, если всё работет продолжайте дальше. (Позже посмотрю в техе на ошибки и если найду таковые постараюсь исправить и внести изменения).
+
+
+Проверка работы домена и его обнаружение (не обязательно если уверены в работе)
+Убедимся, что сервер возвращает правильный IP при запросе адреса по домену:
+
+host -t A au-team.irpo
+Должен вернуть - au-team.irpo has address 192.168.0.2 Пользователи и группа
+
+Проверяем dns запись для имени контроллера домена:
+
+host -t A au-team.irpo
+Должен вернуть - au-team.irpo has address 192.168.0.2
+
+Также DNS должен правильно вернуть SRV запись для kerberos:
+
+host -t SRV _kerberos._udp.au-team.irpo
+Должен вернуть - _ldap._tcp.au-team.irpo has SRV record 0 100 389 br-rtr.au-team.irpo
+
+Нужно проверить появление тикета в системе
+
+klist
+Должен вывести:
+
+
+Ticket cache: FILE:/tmp/krb5cc_0 Default principal: administrator@AU-TEAM.IRPO
+
+Valid starting Expires Service principal 12/17/25 16:14:12 12/18/25 02:14:12 krbtgt/AU-TEAM.IRPO@AU-TEAM.IRPO renew until 12/18/25 16:14:05
+
+
+Так же попытаться аунтифицироваться через администратора
+
+kinit administrator
+Вывод - Warning: Your password will expire in 41 days on Wed Jan 28 15:08:31 2026
+
+
+
+Создание полльзователей
+Создание пользователей от 1 до 5:
+
+for i in {1..5}; do samba-tool user create hquser$i P@ssw0rd; done
+Создание группы hq
+
+samba-tool group add hq
+Добавление пользователей в группу hq
+
+for i in {1..5}; do samba-tool group addmembers hq hquser$i; done
+Sudo ограничения, прописывать на HQ-CLI:
+
+
+apt install sudo -y
+visudo
+Добавить:
+
+%hq ALL=(ALL) NOPASSWD: /usr/bin/cat, /usr/bin/grep, /usr/bin/id
+
+
+через файл политик /etc/sudoers.d/hq_policy /
+Устанавливаем sudo
+
+apt install sudo -y
+Переходим в конфиги:
+
+touch /etc/sudoers.d/hq_policy
+Переходим в файл:
+
+nano /etc/sudoers.d/hq_policy
+Прописываем правило:
+
+%hq ALL=(ALL) NOPASSWD: /usr/bin/cat, /usr/bin/grep, /usr/bin/id
+Настройка HQ-CLI на домен
+Ошибка - нет возможности активировать sudo с пользователя hq. Исправть
+
+
+Задание 2 RAID (HQ-SRV)
+Описание задания
+## Настройка RAID 0
+## Если в работе возникли ошибки (полное удаление RAID)
+
+
+Описание задания
+## Настройка RAID 0
+
+Проверяем наличие дисков на машине:
+
+lsblk
+Устанавливаем необходимую утелиту:
+
+apt install mdadm -y
+Компелируем диски в рейд:
+
+mdadm --create --verbose /dev/md0 --level=0 --raid-devices=2 /dev/sdb /dev/sdc
+Создаём файл для коректного сюора рейда и заночим изминения:
+
+mkdir -p /etc/mdadm
+mdadm --detail --scan --verbose >> /etc/mdadm.conf
+Разграничеваем пространстов диска:
+
+mkfs.ext4 /dev/md0
+Создаём точку монтирования:
+
+mkdir /raid
+Узнаём UUID масива, для внесения изминений в /etc/fstab
+
+blkid /dev/md0
+Прверяем, создался ли масив:
+
+изображение
+После, переходим в конфигурационный файл mdadm.conf и смотрим UUID масива (он будет отличаться от предыдущего)
+
+nano /etc/mdadm.conf
+Создайте скриншот UUID и сохраните на устройство, что бы была возможность вернуться к нему позже
+
+Теперь записываем его файл /etc/fstab:
+
+nano /etc/fstab
+Вы должны привести его к такому виду:
+
+изображение
+После внесения изминений, нужно перезагрузить демона:
+
+systemctl daemon-reload
+Монтируем раздел:
+
+mount -a
+В завершение, обновите initramfs  для обновления информации о запуске масива.
+
+update-initramfs -u
+
+
+## Если в работе возникли ошибки (полное удаление RAID)
+Удаляем точку монтирования:
+
+umount /raid
+Останавливаем RAID:
+
+mdadm --stop /dev/md0
+Очищаем суперблоки дисков:
+
+mdadm --zero-superblock /dev/sdb
+mdadm --zero-superblock /dev/sdc
+Проверяем:
+
+lsblk
+
+
+
+ЗАДНИЕ 3 NFS
+Описание задания
+
+Настройка на HQ-SRV
+Настройка на HQ-CLI
+Проверка работоспособности
+
+
+Описание задания
+
+Настройка на HQ-SRV
+
+
+Первым делом устанавливаем необходимую утилиту:
+
+apt install nfs-kernel-server -y
+После создаём необходимый каталог:
+
+mkdir -p /raid/nfs
+Выыдаём права на его чтение:
+
+chmod 777 /raid/nfs
+Переходим в конфиги экспорта:
+
+nano /etc/exports
+И прописываем в нём следующее значение (ip адресс устройства должен быть точным):
+
+/raid/nfs  192.168.200.0/28(rw,sync,no_subtree_check)
+Или
+
+echo "/raid/nfs 192.168.200.3/28(rw,sync,no_subtree_check)" >> /etc/exports
+Если дальше по заданию не заработает, укажите точный IP
+Применям изминения:
+
+exportfs -a
+Включаем сервис:
+
+systemctl enable --now nfs-server
+Перезапускаем:
+
+systemctl restart nfs-kernel-server
+
+
+Настройка на HQ-CLI
+Устанавливаем утилиту:
+
+apt install autofs -y
+Проверяем соедиение:
+
+showmount -e 192.168.100.15
+Должени быть следующий результат:
+
+изображение
+Далее, создаём папку для монтирования:
+
+mkdir -p /mnt/nfs
+Переходим к автозапуску при загрузке системы:
+
+nano /etc/fstab
+Добавляем следующую строку в файл:
+
+192.168.100.15:/raid/nfs  /mnt/nfs  nfs  defaults,_netdev  0  0
+Или
+
+echo "192.168.100.15:/raid/nfs  /mnt/nfs  nfs  defaults,_netdev  0  0" >> /etc/fstab
+Перезагружаем демона
+
+systemctl daemon-reload
+Производим монтирование:
+
+mount -a
+Проверяем результат, должен быть вывод как на рисунке:
+
+df -h | grep nfs
+изображение
+Проверка работоспособности
+Помимо основных проверок, чт обыли сделаны выше:
+
+showmount -e 192.168.100.15
+df -h | grep nfs
+Создайте тестовый файл на клиенте в директорию, которую вы смонтированили:
+
+touch /mnt/nfs/testfile
+Полсе чего проверьте его наличие на сервере:
+
+НА HQ-SRV ПОСМОТРЕТЬ ->
+ls -l /raid/nfs/testfile
+Результат должен быть следующим:
+
+изображение
+
+
+
+
+Задание 4 - NTP (ISP)
+Описание задания
+Настройка на ISP
+Настройка на остальных машинах (HQ-SRV, HQ-CLI, BR-RTR, BR-SRV)
+Проверка работы
+
+
+
+
+Задание 4 - NTP (ISP)
+Описание задания
+Настройка на ISP
+Настройка на остальных машинах (HQ-SRV, HQ-CLI, BR-RTR, BR-SRV)
+Проверка работы
+
+
+
+Настройка на ISP
+
+Устанавливаем необходимую утилиту:
+
+apt install chrony -y
+Переходим в конфиг:
+
+nano /etc/chrony/chrony.conf
+Добавить:
+
+server 1.ru.pool.ntp.org iburst
+allow 0.0.0.0/0
+local stratum 5
+На месте сервера указываем свой внешний ntp
+
+Перезапускаем утилиту:
+
+systemctl restart chrony
+Проверяем что ISP синхронизировался с внешним мирои:
+
+chronyc sources -v
+
+
+Настройка на остальных машинах (HQ-SRV, HQ-CLI, BR-RTR, BR-SRV)
+Так же производим установку утилиты:
+
+apt install chrony -y
+Редактируем конфиг (настраиваем ip в зависимости от подсети):
+
+nano /etc/chrony/chrony.conf
+server 172.16.1.1 iburst
+server 172.16.2.1 iburst
+Приминяем настройки:
+
+systemctl restart chrony
+
+Проверка работы
+Прописываем следующие команды:
+
+chronyc sources
+chronyc tracking
+
+
+Задание 5 . ANSIBLE (BR-SRV)
+Описание задания
+
+Преднастройка на машинах (HQ-SRV, HQ-CLI, BR-RTR, HQ-RTR)
+Настройка инвентаря Ansible на BR-SRV
+
+
+
+
+Преднастройка на машинах (HQ-SRV, HQ-CLI, BR-RTR, HQ-RTR)
+Первым делом устанавливаем SSH:
+
+apt install ssh -y
+Полсе переходим в конфигруации и прописываем два правила, а так же раскоментируем порт 22 на роутервх:
+
+nano /etc/ssh/sshd_config
+Port 2026
+
+PermitRootLogin yes
+Как должно выглядеть устройство:
+изображение
+Как должен выглядеть роутер и HQ-CLI:
+изображение
+Перезапускаем SSH:
+
+systemctl restart ssh
 
 
 
