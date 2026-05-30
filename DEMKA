@@ -164,3 +164,540 @@ allow-hotplug ens192
 iface ens192 inet static
 address 192.168.100.15/27
 gateway 192.168.100.1
+
+
+Задание 2 [NAT на ISP]
+
+
+apt-get install iptables iptables-persistent –y
+
+iptables –t nat –A POSTROUTING –s 172.16.1.0/28 –o ens192 –j MASQUERADE  
+iptables –t nat –A POSTROUTING –s 172.16.2.0/28 –o ens192 –j MASQUERADE
+netfilter-persistent save
+systemctl restart netfilter-persistent  
+
+Либо другая настройка
+apt install iptables  
+apt install iptables iptables-persistent  
+iptables –t nat –A POSTROUTING –s 172.16.1.0/28 –o ens192 –j MASQUERADE   
+iptables –t nat –A POSTROUTING –s 172.16.2.0/28 –o ens192 –j MASQUERADE   
+iptables-save > /etc/iptables/rules.v4  
+
+
+
+ Задание 3 [Создание учетных записей]
+
+
+Как создать sshuser
+
+Создание учёток sshuser производится на HQ-SRV и BR-SRV
+1. Создаём sshuser следующими командами:
+
+useradd sshuser -u 2026
+passwd sshuser
+P@ssw0rd
+
+2. После чего даем пользователю root права:
+
+usermod -aG sudo sshuser
+
+3. Добавляем следующую строку в файле /sudoers:
+
+nano /etc/sudoers
+sshuser ALL=(ALL) NOPASSWD:ALL
+Позволяет запускать sudo без аутентификации
+
+4. Создаем и задаем необходимые права на домашнюю папку
+
+mkdir /home/sshuser
+chown sshuser:sshuser /home/sshuser
+chmod 700 /home/sshuser
+
+
+Пользователь net_admin на HQ-RTR и BR-RTR
+1. Создаём net_admin, следующими командами, но уже без -u 1010 и с новым паролем:
+
+useradd net_admin
+passwd net_admin
+P@ssw0rd
+
+2. После чего даем пользователю root права:
+
+usermod -aG sudo net_admin
+
+3. Добавляем следующую строку в /sudoers:
+
+nano /etc/sudoers
+net_admin ALL=(ALL) NOPASSWD:ALL
+Позволяет запускать sudo без аутентификации
+
+4. Создаем и задаем необходимые права на домашнюю папку
+
+mkdir /home/net_admin
+chown net_admin:net_admin /home/net_admin
+chmod 700 /home/net_admin
+
+
+ Задание 4 [VLAN]
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка VLAN на HQ-RTR
+Настройка VLAN на HQ-RTR
+Для начала установи пакет vlan:
+
+
+apt install vlan
+
+После чего добавляем модуль modprobe 8021q командой:
+
+
+echo 8021q >> /etc/modules
+
+Далее переходим к конфигурации файла /etc/network/interfaces и приводим её к виду:
+nano /etc/network/interfaces
+
+# The primary network interface
+auto ens192  
+iface ens192 inet static  
+address 172.16.1.2/28
+gateway 172.16.1.1
+
+auto gre1
+iface gre1 inet tunnel
+address 172.16.0.1
+netmask 255.255.255.240
+mode gre
+local 172.16.1.2
+endpoint 172.16.2.2
+ttl 64
+  
+auto ens224  
+iface ens224 inet static  
+address 192.168.100.1/27 
+  
+auto ens224:1  
+iface ens224:1 inet static  
+address 192.168.200.1/28
+
+auto ens224:2  
+iface ens224:2 inet static  
+address 192.168.99.9/29
+
+auto ens224.100  
+iface ens224.100 inet manual   
+Vlan-raw-device ens224  
+  
+auto ens224.200  
+iface ens224.200 inet manual   
+Vlan-raw-device ens224:1
+
+auto ens224.999  
+iface ens224.999 inet manual   
+Vlan-raw-device ens224:2
+
+
+ Задание 5 [SSH]
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка SSH
+
+SSH настраиваем на HQ-SRV и BR-SRV
+1. Для настройки SSH необходимо его установить коммандой:
+
+apt-get install openssh-server -y
+
+2. После чего необходимо добавить строчки в файл sshd_config:
+
+nano /etc/ssh/sshd_config
+Port 2026
+MaxAuthTries 2
+PasswordAuthentication yes
+Banner /etc/ssh/banner
+AllowUsers  sshuser
+           ^ - это TAB
+
+3. После чего требуется создать файл /etc/ssh/banner и привести его в следующую форму:
+
+----------------------
+Authorized access only
+----------------------
+
+4. Далее необходимо перезапустить SSH коммандой:
+
+systemctl restart sshd
+
+
+ Задание 6 [GRE-TUNNEL]
+Warning
+
+Не используйте устройства с именем tun0, gre0 и sit0, т.к они являются зарезервированными в iproute2 («base devices») и имеют особое поведение.
+
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка GRE в файле etc/network/interfacesна HQ-RTR
+
+Для настройки GRE туннеля на HQ-RTR переходим в файл конфигурации
+
+nano /etc/network/interfaces
+И убеждаемся в наличии этих строк:
+
+auto gre1
+iface gre1 inet tunnel
+address 172.16.0.1
+netmask 255.255.255.240
+mode gre
+local 172.16.1.2
+endpoint 172.16.2.2
+ttl 64
+Для работы туннеля необходимо добавить строчку в файл /etc/modules
+
+echo gre_ip >> /etc/modules
+
+systemctl restart networking
+
+
+Настройка GRE в файле etc/network/interfaces на BR-RTR
+
+Для настройки *GRE* туннеля на *BR-RTR* переходим в файл конфигурации
+nano /etc/network/interfaces
+И убеждаемся в наличии этих строк:
+
+auto gre1
+iface gre1 inet tunnel
+address 172.16.0.2
+netmask 255.255.255.240
+mode gre
+local 172.16.2.2
+endpoint 172.16.1.2
+ttl 64
+Для работы туннеля необходимо добавить строчку в файл /etc/modules
+
+echo gre_ip >> /etc/modules
+
+systemctl restart networking
+
+
+Задание 7 [OSPF]
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка OSPF
+
+Настройка OSPF производится на HQ-RTR и BR-RTR:
+HQ-RTR
+1. Устанавливаем пакет FRR
+
+sudo apt install -y frr
+2. В конфигурационном файле /etc/frr/daemons необходимо активировать выбранный протокол OSPF для дальнейшей реализации его настройки:
+
+nano /etc/frr/daemons
+!!! Ищем следующую строку и меняем с (no) на (yes) ospfd = yes
+
+3. Далее перезаргужаем и добавляем в автозагрузку службу FRR
+
+systemctl restart frr
+systemctl enable --now frr
+4. Переходим в интерфейс управления симуляцией FRR командой:
+
+vtysh
+
+
+5. Пишем команды для настройки маршрутизации:
+
+conf t
+router ospf
+  passive-interface default
+  router-id 1.1.1.1
+  network 172.16.0.0/28 area 0
+  network 192.168.100.0/27 area 1
+  network 192.168.200.0/28 area 2
+  area 0 authentication
+exit
+
+int gre1
+  no ip ospf network broadcast
+  no ip ospf passive
+  ip ospf authentication
+  ip ospf authentication-key password
+exit
+exit
+write
+
+
+BR-RTR
+1-4. Пункты такие же как и в HQ-RTR
+
+5. Пишем команды для настройки маршрутизации:
+
+Меняется:
+
+id-router: 2.2.2.2
+
+network 192.168.0.0/27 area 3
+
+network 172.16.0.0/28 area 0
+
+conf t
+router ospf
+  passive-interface default
+  router-id 2.2.2.2
+  network 192.168.0.0/27 area 3
+  network 172.16.0.0/28 area 0
+  area 0 authentication
+exit
+
+int gre1
+  no ip ospf network broadcast
+  no ip ospf passive
+  ip ospf authentication
+  ip ospf authentication-key password
+exit
+exit
+write
+ПРОВЕРКА
+Пингуем: BR-SRV - > HQ-SRV и BR-SRV - > HQ-CLI
+
+Проверка в FRR:
+
+vtysh
+  show ip ospf neighbor
+  show ip route ospf
+
+
+
+Настройка маршрутов, если не работает OSPF:
+Настройка маршрутов
+
+После создания влана настраиваем маршрут для подсетей (чтобы они видели друг друга)
+На роутере HQ-RTR настройка выглядит так:
+
+nano /etc/systemd/system/iproute.service
+
+После чего добавляем текст:
+
+[Unit]
+Description=iproute
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip route add 192.168.0.0/27 via 172.16.0.2 dev gre1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
+На роутере BR-RTR создаем тот же файли настраивеим:
+
+nano /etc/systemd/system/iproute.service
+Для HQ-RTR:
+
+[Unit]
+Description=iproute
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip route add 192.168.100.0/27 via 172.16.0.1 dev gre1
+ExecStart=/sbin/ip route add 192.168.200.0/28 via 172.16.0.1 dev gre1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
+После на обоих устройствах прописываем:
+
+systemctl daemon-reload
+systemctl enable iproute.service
+systemctl start iproute.service
+
+
+ЕСЛИ НЕ ПОНЯТНО:
+
+
+
+
+
+Что нужно сделать (по шагам)
+ШАГ 1. Создаём файл-инструкцию для роутера
+На HQ-RTR пишем команду:
+
+bash
+nano /etc/systemd/system/iproute.service
+Откроется пустой файл. Копируем туда это:
+
+text
+[Unit]
+Description=iproute
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip route add 192.168.0.0/27 via 172.16.0.2 dev gre1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+Сохраняем: нажимаем Ctrl+X, потом Y, потом Enter.
+
+ШАГ 2. Включаем и запускаем
+Выполняем три команды:
+
+bash
+systemctl daemon-reload          # говорим системе "появился новый файл"
+systemctl enable iproute.service # говорим "запускай это при загрузке"
+systemctl start iproute.service  # говорим "запусти прямо сейчас"
+Всё! Маршрут добавлен и будет добавляться每次 при загрузке.
+
+То же самое для второго роутера (BR-RTR)
+Повторяем Шаг 1, но содержимое файла будет другим:
+
+text
+[Unit]
+Description=iproute
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip route add 192.168.100.0/27 via 172.16.0.1 dev gre1
+ExecStart=/sbin/ip route add 192.168.200.0/28 via 172.16.0.1 dev gre1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+Потом Шаг 2 (те же три команды).
+
+В чём разница между роутерами (запомнить)
+Роутер	Какой маршрут добавляем	Через кого
+HQ-RTR	до сети 192.168.0.0/27 (это BR-SRV)	через 172.16.0.2
+BR-RTR	до сетей 192.168.100.0/27 и 192.168.200.0/28 (это HQ)	через 172.16.0.1
+Зачем всё это, если можно просто ввести команду?
+Простой способ (неправильно)	Способ через службу (правильно)
+ip route add ...	создать iproute.service
+✅ маршрут добавится сразу	✅ маршрут добавится сразу
+❌ после перезагрузки пропадёт	✅ после перезагрузки сохранится
+Проверить, что работает
+bash
+ip route show
+Должен увидеть что-то похожее на:
+
+text
+192.168.0.0/27 via 172.16.0.2 dev gre1
+Если есть такая строка — всё правильно.
+
+
+
+Задание 8 [NAT на HQ-rtr и BR-rtr]
+Note
+
+Пул адрессов можно посмотреть в таблице Задания 1 или же отталкиваться от вашей адрессации.
+
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка NAT на BR и HQ
+
+> Настройка динамической трансляции адресов <
+Настройка на ISP выполнена в Задании 2
+Настройка динамической сетевой трансляции на HQ-RTR  HQ-RTR
+apt-get install iptables iptables-persistent –y
+iptables –t nat –A POSTROUTING –s 192.168.100.0/27 –o ens192 –j MASQUERADE
+iptables –t nat –A POSTROUTING –s 192.168.200.0/28 –o ens192 –j MASQUERADE
+netfilter-persistent save
+systemctl restart netfilter-persistent  
+
+
+Настройка динамической сетевой трансляции на BR-RTR
+apt-get install iptables iptables-persistent –y
+iptables –t nat –A POSTROUTING –s 192.168.0.0/27 –o ens192 –j MASQUERADE
+netfilter-persistent save
+systemctl restart netfilter-persistent 
+
+
+Альтарнативная настройка сетевой трансляции через  nftables  (быстрее и удобнее)
+ВНИМАНИЕ! Если у вас не вышло настроить  NAT  через  nftables , возвращайтесь к первому варианту!
+На BR-RTR
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        iifname "ens192" tcp dport 8080 dnat to 192.168.0.2:8080
+
+        iifname "ens192" tcp dport 2026 dnat to 192.168.0.2:2026
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        
+        oifname "ens192" masquerade
+    }
+}
+
+
+table ip filter {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+    }
+}
+На HQ-RTR
+ table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        iifname "ens192" tcp dport 8080 dnat to 192.168.100.15:8080
+
+        iifname "ens192" tcp dport 2026 dnat to 192.168.100.15:2026
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        
+        oifname "ens192" masquerade
+    }
+}
+
+table ip filter {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+    }
+}
+
+
+
+Задание 9 [DHCP]
+[ОПИСАНИЕ ЗАДАНИЙ]
+
+Настройка DHCP на HQ-RTR
+
+> Настройка DHCP на HQ-RTR для CLI <
+
+1. Устанавливаем сам DHCP-сервер:
+
+apt install isc-dhcp-server -y
+
+2. После чего переходим в конфигурацию файла dhcpd.conf и добавляем следующие строчки:
+
+nano /etc/dhcp/dhcpd.conf
+subnet 192.168.200.0 netmask 255.255.255.240 {
+  range 192.168.200.2 192.168.200.14;
+  option domain-name-servers 192.168.100.15;
+  option domain-name "au-team.irpo";
+  option routers 192.168.200.1;
+  default-lease-time 600;
+  max-lease-time 7200;
+}
+
+3. После чего переходим в конфигурацию файла isc-dhcp-server и меняем ее добалвяя данный текст:
+
+nano /etc/default/isc-dhcp-server
+Порт смотрящий в сторону CLI
+
+INTERFACESv4="ens224:1" 
+
+4. Включаем сервиc DHCP и добавляем в автозагрузку на HQ-RTR:
+
+systemctl start isc-dhcp-server
+systemctl enable isc-dhcp-server
+5. Далее на клиенсткой машине необходимо в настройках сет.адаптера выбрать режим DHCP и проверить работоспособность
+
+
+Задание 10 [DNS]
+
